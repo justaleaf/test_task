@@ -5,3 +5,4 @@ aiofiles
 uvicorn
 aiohttp
 python-dotenv
+passlib
