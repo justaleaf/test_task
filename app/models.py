@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, ForeignKey
+from sqlalchemy import Column, Integer, String, ForeignKey, Boolean
 from sqlalchemy.orm import relationship
 from sqlalchemy.ext.declarative import declarative_base
 
@@ -11,6 +11,7 @@ class User(Base):
     yandex_id = Column(String, unique=True, index=True)
     username = Column(String, unique=True, index=True)
     hashed_password = Column(String)
+    is_superuser = Column(Boolean, default=False)
 
     audio_files = relationship("AudioFile", back_populates="owner")
 

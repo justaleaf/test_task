@@ -4,6 +4,7 @@ from app.models import AudioFile, User
 from app.schemas import UserCreate
 import os
 from passlib.context import CryptContext
+from uuid import uuid4
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
@@ -32,12 +33,24 @@ async def delete_audio_file(db: AsyncSession, audio_file_id: int, owner_id: int)
     return False
 
 async def create_user(db: AsyncSession, user: UserCreate):
-    hashed_password = pwd_context.hash("default_password")  # Временный пароль
-    db_user = User(username=user.username, yandex_id="temp_yandex_id", hashed_password=hashed_password)
+    hashed_password = pwd_context.hash(user.password)
+    db_user = User(username=user.username, yandex_id=uuid4().hex, hashed_password=hashed_password)
     db.add(db_user)
     await db.commit()
     await db.refresh(db_user)
     return db_user
+
+
+async def update_user(db: AsyncSession, user_id: int, new_username: str):
+    result = await db.execute(select(User).filter(User.id == user_id))
+    db_user = result.scalar_one_or_none()
+    if db_user:
+        db_user.username = new_username
+        await db.commit()
+        await db.refresh(db_user)
+        return db_user
+    return None
+
 
 async def get_user_by_username(db: AsyncSession, username: str):
     result = await db.execute(select(User).filter(User.username == username))
