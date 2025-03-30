@@ -7,3 +7,4 @@ aiohttp
 python-dotenv
 passlib
 python-jose[cryptography]
+httpx

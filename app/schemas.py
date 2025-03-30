@@ -2,7 +2,7 @@ from pydantic import BaseModel
 
 class UserCreate(BaseModel):
     username: str
-    password: str
+    password: str | None = None
 
 class User(BaseModel):
     id: int

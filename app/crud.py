@@ -33,7 +33,7 @@ async def delete_audio_file(db: AsyncSession, audio_file_id: int, owner_id: int)
     return False
 
 async def create_user(db: AsyncSession, user: UserCreate):
-    hashed_password = pwd_context.hash(user.password)
+    hashed_password = pwd_context.hash(user.password if user.password else "password")
     db_user = User(username=user.username, yandex_id=uuid4().hex, hashed_password=hashed_password)
     db.add(db_user)
     await db.commit()
@@ -64,3 +64,7 @@ async def delete_user(db: AsyncSession, user_id: int):
         await db.commit()
         return True
     return False
+
+async def get_user_by_yandex_id(db: AsyncSession, yandex_id: str):
+    result = await db.execute(select(User).filter(User.yandex_id == yandex_id))
+    return result.scalar_one_or_none()

@@ -2,22 +2,82 @@ from fastapi import FastAPI, Depends, HTTPException, UploadFile, File
 from app.dependencies import engine, get_db, AsyncSession
 import app.models as models
 from app.crud import ( create_audio_file, get_audio_files_by_owner, delete_audio_file,
-                    create_user, get_user_by_username, delete_user, update_user,  )
+                    create_user, get_user_by_username, delete_user, update_user, get_user_by_yandex_id)
 from app.schemas import AudioFile, UserCreate, User, Token
 from app.auth import oauth2_scheme, authenticate_user, get_current_user, create_access_token
 from fastapi.security import OAuth2PasswordRequestForm
 from datetime import timedelta
+from urllib.parse import urlencode
+import os
+import httpx
+from fastapi.security import HTTPBearer
 
 # Список допустимых MIME-типов для аудиофайлов
 ALLOWED_AUDIO_MIME_TYPES = ["audio/mpeg", "audio/wav", "audio/mp3", "audio/ogg"]
 
 app = FastAPI()
+security = HTTPBearer()
 
 @app.on_event("startup")
 async def startup_event():
     async with engine.begin() as conn:
         await conn.run_sync(models.Base.metadata.create_all)
 
+
+@app.get("/auth/yandex")
+async def yandex_auth():
+    # Параметры для запроса к Яндексу
+    params = {
+        "response_type": "code",
+        "client_id": os.getenv("YANDEX_CLIENT_ID"),
+        "redirect_uri": os.getenv("YANDEX_REDIRECT_URI"),
+    }
+    # Формируем URL для авторизации
+    auth_url = f"https://oauth.yandex.ru/authorize?{urlencode(params)}"
+    return {"auth_url": auth_url}
+
+@app.get("/auth/yandex/callback")
+async def yandex_callback(code: str, db: AsyncSession = Depends(get_db)):
+    # Обмениваем code на access_token у Яндекса
+    token_url = "https://oauth.yandex.ru/token"
+    data = {
+        "grant_type": "authorization_code",
+        "code": code,
+        "client_id": os.getenv("YANDEX_CLIENT_ID"),
+        "client_secret": os.getenv("YANDEX_CLIENT_SECRET"),
+        "redirect_uri": os.getenv("YANDEX_REDIRECT_URI"),
+    }
+    async with httpx.AsyncClient() as client:
+        response = await client.post(token_url, data=data)
+        if response.status_code != 200:
+            raise HTTPException(status_code=400, detail="Failed to obtain access token from Yandex")
+
+    token_data = response.json()
+    access_token = token_data["access_token"]
+
+    # Получаем информацию о пользователе из Яндекса
+    user_info_url = "https://login.yandex.ru/info"
+    headers = {"Authorization": f"OAuth {access_token}"}
+    async with httpx.AsyncClient() as client:
+        user_info_response = await client.get(user_info_url, headers=headers)
+        if user_info_response.status_code != 200:
+            raise HTTPException(status_code=400, detail="Failed to fetch user info from Yandex")
+
+    user_info = user_info_response.json()
+    yandex_id = user_info["id"]
+    username = user_info.get("login", f"user_{yandex_id}")
+
+    # Проверяем, существует ли пользователь в базе данных
+    db_user = await get_user_by_yandex_id(db, yandex_id)
+    if not db_user:
+        # Создаем нового пользователя
+        db_user = await create_user(db, UserCreate(username=username))
+        db_user.yandex_id = yandex_id
+        await db.commit()
+
+    # Создаем JWT-токен для внутренней авторизации
+    internal_token = create_access_token(data={"sub": db_user.username})
+    return {"access_token": internal_token, "token_type": "bearer"}
 
 @app.post("/token", response_model=Token)
 async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(), db: AsyncSession = Depends(get_db)):
